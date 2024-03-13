@@ -146,8 +146,8 @@ if __name__ == "__main__":
         print("No part images found in the specified folder. Exiting.")
     else:
         part_info = precalculate_part_info(part_images)
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(('localhost', 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    app.run(port=port)
+    # sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # sock.bind(('localhost', 0))
+    # port = sock.getsockname()[1]
+    # sock.close()
+    # app.run(port=port)
