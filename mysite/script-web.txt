@@ -1,0 +1,155 @@
+from flask import Flask, render_template, request, send_file
+from PIL import Image
+import os
+import random
+import math
+from PIL import ImageStat
+from tqdm import tqdm
+import socket
+app = Flask(__name__)
+
+Config = {
+    "image_folder_path": "../parts",  # Update with your folder path
+    "desired_width": 89 * 180,
+    "part_size": 89,
+}
+
+part_info = {}
+
+
+def load_part_images_sorted_by_avg_rgb(folder_path):
+    part_images = []
+    for root, _, files in os.walk(folder_path):
+        for file in files:
+            if file.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+                image_path = os.path.join(root, file)
+                part_images.append(image_path)
+    return part_images
+
+
+def calculate_average_rgba(part_image):
+    stat = ImageStat.Stat(part_image)
+    return tuple(int(x) for x in stat.mean[:4])
+
+
+def precalculate_part_info(part_images):
+    part_info = {}
+    for part_image_path in tqdm(part_images, desc="Precalculating Part Info", ncols=100, dynamic_ncols=True,
+                                ascii=True):
+        part_image = Image.open(part_image_path).convert('RGBA')
+        average_rgba = calculate_average_rgba(part_image)
+        part_info[part_image_path] = {'average_rgba': average_rgba}
+    return part_info
+
+
+def find_closest_matching_part(input_rgba, part_info):
+    closest_part = None
+    min_distance = float('inf')
+    for part_image_path, info in part_info.items():
+        part_rgba = info['average_rgba']
+        distance = sum((a - b) ** 2 for a, b in zip(input_rgba, part_rgba))
+        if distance < min_distance:
+            min_distance = distance
+            closest_part = part_image_path
+    return closest_part
+
+
+def resize_image_maintain_aspect_ratio(input_image, desired_width):
+    width_percent = (desired_width / float(input_image.size[0]))
+    new_height = int((float(input_image.size[1]) * float(width_percent)))
+    resized_image = input_image.resize((desired_width, new_height), Image.LANCZOS)
+    return resized_image
+
+
+def calculate_num_parts(input_image, part_size):
+    width, height = input_image.size
+    part_width = part_size
+    part_height = part_size
+    cols = math.ceil(width / part_width)
+    rows = math.ceil(height / part_height)
+    return cols * rows
+
+
+def create_matching_image(input_image, num_parts, part_info):
+    width, height = input_image.size
+    output_image = Image.new('RGBA', (width, height), (255, 255, 255, 0))
+    if width <= Config["part_size"] or height <= Config["part_size"]:
+        print("Input image dimensions are too small. Exiting.")
+        return output_image
+    rows = int(height / Config["part_size"])
+    cols = int(width / Config["part_size"])
+    part_width = width // cols
+    part_height = height // rows
+    with tqdm(total=num_parts, ncols=100, dynamic_ncols=True, ascii=True) as pbar:
+        for _ in range(num_parts):
+            x = (_ % cols) * part_width
+            y = (_ // cols) * part_height
+            region = input_image.crop((x, y, x + part_width, y + part_height))
+            input_rgba = calculate_average_rgba(region)
+            closest_part_path = find_closest_matching_part(input_rgba, part_info)
+            if closest_part_path:
+                closest_part = Image.open(closest_part_path).convert('RGBA')
+                rotation_angle = random.choice([0, 90, 180, 270])
+                closest_part = closest_part.rotate(rotation_angle, expand=True)
+                output_image.paste(closest_part, (x, y), closest_part)
+                pbar.update(1)
+    return output_image
+
+
+def get_file_size(image_path):
+    return os.path.getsize(image_path)
+
+
+@app.route('/')
+def index():
+    return render_template('index.html', part_images=part_images)
+
+@app.route('/generate', methods=['POST'])
+def generate():
+    input_image = request.files['input_image']
+    dimensions = int(request.form['dimensions']) * 89  # Multiplying by 89 to match your original calculation
+    if input_image.filename == '':
+        return "No input file selected"
+
+    print("Received file:", input_image.filename)  # Add this line for debugging
+
+    uploads_dir = os.path.join(os.getcwd(), r"uploads")
+    if not os.path.exists(uploads_dir):
+        os.makedirs(uploads_dir)
+
+    input_image_path = os.path.join(uploads_dir, input_image.filename)
+    print("Saving to:", input_image_path)
+
+    input_image.save(input_image_path)
+    try:
+        input_image = Image.open(input_image_path).convert('RGBA')
+        input_image = resize_image_maintain_aspect_ratio(input_image, dimensions)
+        num_parts = calculate_num_parts(input_image, Config["part_size"])
+    except FileNotFoundError:
+        return "Input image not found"
+
+    output_dir = os.path.join(os.getcwd(), r"output")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    output_path = os.path.join(output_dir, "output_img.png")  # Update output file path
+    output_image = create_matching_image(input_image, num_parts, part_info)
+    output_image.save(output_path)
+    file_size = get_file_size(output_path)
+    return send_file(output_path, as_attachment=True)
+
+
+
+if __name__ == "__main__":
+    part_images = load_part_images_sorted_by_avg_rgb(Config["image_folder_path"])
+    if not part_images:
+        print("No part images found in the specified folder. Exiting.")
+    else:
+        part_info = precalculate_part_info(part_images)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(('localhost', 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    app.run(port=port)
+    #app.run(host='0.0.0.0', port=8099)
+    

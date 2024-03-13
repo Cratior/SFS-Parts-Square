@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Generator</title>
+</head>
+<body>
+    <h1>Image Generator</h1>
+    <form action="/generate" method="post" enctype="multipart/form-data" id="generate_form">
+        <input type="file" name="input_image" accept="image/*" required><br><br>
+        <label for="dimensions">Select dimensions (30-110):</label>
+        <input type="range" name="dimensions" id="dimensions" min="30" max="110" value="70" required>
+        <span id="dimensions_value">70</span><br><br> <!-- Add this line for displaying the current value -->
+        <button type="submit">Generate</button>
+        <br>
+        <div>
+            <label for="loaded_parts">Loaded Parts:</label>
+            <textarea id="loaded_parts" rows="5" cols="50"></textarea>
+        </div>
+    </form>
+    <script>
+        var part_images = JSON.parse('{{ part_images | tojson | tojson | safe }}');
+        // JavaScript to update the value display
+        var dimensionsSlider = document.getElementById("dimensions");
+        var dimensionsValue = document.getElementById("dimensions_value");
+        dimensionsSlider.addEventListener("input", function () {
+            dimensionsValue.textContent = dimensionsSlider.value;
+        });
+        var loadedPartsTextbox = document.getElementById("loaded_parts");
+        // Update the loaded parts text box
+        function updateLoadedParts(parts) {
+            loadedPartsTextbox.value = parts.join("\n");
+        }
+        // Call this function to update the loaded parts display
+        updateLoadedParts(part_images);
+    </script>
+</body>
+</html>
